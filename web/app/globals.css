@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #0c1117;
+  --color-ink: #e7edf3;
+  --color-muted: #93a9b9;
+  --color-line: #263140;
+
+  --color-low: #2fae66; /* plenty of bikes */
+  --color-mid: #e0a72c; /* getting scarce */
+  --color-high: #d8453f; /* nearly empty or nearly full */
+
+  --font-display: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+}
+
+/* MapLibre's own stylesheet expects a sized parent -- app/page.tsx gives
+   the map container an explicit height, this just makes the default
+   canvas fill it. */
+.maplibregl-map {
+  width: 100%;
+  height: 100%;
+}

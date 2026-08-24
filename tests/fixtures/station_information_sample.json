@@ -1,0 +1,30 @@
+{
+  "last_updated": 1787500000,
+  "ttl": 3600,
+  "data": {
+    "stations": [
+      {
+        "station_id": "1",
+        "external_id": "e961269c-34c4-4b70-8e30-a51aa95a8429",
+        "name": "CE-710 Molino del Rey - Glorieta de la Lealtad",
+        "short_name": "710",
+        "lat": 19.416795,
+        "lon": -99.192508,
+        "rental_methods": ["CREDITCARD", "KEY"],
+        "capacity": 39,
+        "has_kiosk": true
+      },
+      {
+        "station_id": "2",
+        "external_id": "b1f2e3d4-0000-1111-2222-333344445555",
+        "name": "CE-002 Decommissioned kiosk-only stand",
+        "short_name": "002",
+        "lat": 19.4,
+        "lon": -99.15,
+        "rental_methods": ["KEY"],
+        "capacity": 0,
+        "has_kiosk": true
+      }
+    ]
+  }
+}

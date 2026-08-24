@@ -1,0 +1,80 @@
+# Local dev stack: single-node Kafka (KRaft, no ZooKeeper) + TimescaleDB +
+# the poller and consumer services. Both services point at the *real*
+# Ecobici feed and the *real* Supabase project (see .env.example) -- there's
+# no local fixture broker for the happy path, only for unit tests.
+#
+# Usage:
+#   cp .env.example .env   # fill in SUPABASE_* values
+#   docker compose up --build
+
+services:
+  kafka:
+    image: apache/kafka:3.8.0
+    hostname: kafka
+    ports:
+      - "9092:9092" # host access, e.g. for kcat/local debugging
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://kafka:19092,CONTROLLER://kafka:19093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:19093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5433:5432" # 5433 on the host to avoid clashing with a local Postgres on 5432
+    environment:
+      POSTGRES_USER: ecobici
+      POSTGRES_PASSWORD: ecobici
+      POSTGRES_DB: ecobici_pulse
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./db/timescale/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecobici"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  poller:
+    build:
+      context: .
+      dockerfile: poller/Dockerfile
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      POLL_INTERVAL_S: "60"
+    restart: unless-stopped
+
+  consumer:
+    build:
+      context: .
+      dockerfile: consumer/Dockerfile
+    depends_on:
+      kafka:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      TIMESCALE_DSN: postgresql://ecobici:ecobici@timescaledb:5432/ecobici_pulse
+      SUPABASE_DB_DSN: ${SUPABASE_DB_DSN}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    restart: unless-stopped
+
+volumes:
+  timescale-data:

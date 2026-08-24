@@ -1,0 +1,27 @@
+# Production overrides for the always-on VM (see scripts/setup_oracle_vm.md).
+# Run with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Differences from local dev:
+#   - No host port publishing for kafka/timescaledb -- nothing but the
+#     poller/consumer containers on this box ever need to reach them, and
+#     the whole point of this design is that the VM has zero inbound ports
+#     open to the internet.
+#   - restart: always (survive a VM reboot, not just a container crash).
+#   - Named volumes get a distinct prefix so this never collides with a
+#     local dev run if someone ever runs both against the same host.
+
+services:
+  kafka:
+    ports: []
+    restart: always
+
+  timescaledb:
+    ports: []
+    restart: always
+
+  poller:
+    restart: always
+
+  consumer:
+    restart: always
