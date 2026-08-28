@@ -40,10 +40,6 @@ Lakehouse).
 
 ## Known loose ends
 
-- Two untracked files sit in the repo root from debugging the Vercel
-  deploy (`deploy_log.log`, two `Screenshot *.png` files) -- not
-  committed, but worth deleting or `.gitignore`-ing once you're sure you
-  don't need them anymore.
 - No origin-destination / trip-history analysis -- this project only
   ever polls the live GBFS `station_status.json`/`station_information.json`
   endpoints (aggregate counts per station). Ecobici's separate historical
