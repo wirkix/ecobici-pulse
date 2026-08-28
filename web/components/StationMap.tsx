@@ -100,6 +100,21 @@ export default function StationMap() {
         <div className="text-ink">{stationCount} stations</div>
         {lastUpdate && <div>last update: {lastUpdate}</div>}
       </div>
+      <div className="pointer-events-none absolute bottom-6 left-4 rounded-lg border border-line bg-paper/85 px-3 py-2 text-xs text-muted backdrop-blur">
+        <div className="mb-1.5 text-ink">Station occupancy</div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: "var(--color-low)" }} />
+          healthy -- bikes and docks both available
+        </div>
+        <div className="mt-1 flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: "var(--color-mid)" }} />
+          getting scarce
+        </div>
+        <div className="mt-1 flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: "var(--color-high)" }} />
+          nearly empty or nearly full
+        </div>
+      </div>
     </div>
   );
 }

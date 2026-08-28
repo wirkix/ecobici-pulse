@@ -29,3 +29,39 @@ body {
   width: 100%;
   height: 100%;
 }
+
+/* Match the station popup to the site's dark theme. MapLibre's own
+   stylesheet sets the popup background to a hardcoded white but never
+   sets a text color -- it was inheriting body's near-white --color-ink
+   (meant for light text on the dark page background), landing as
+   near-white text on a white popup. */
+.maplibregl-popup-content {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-family: var(--font-display);
+  line-height: 1.5;
+}
+.maplibregl-popup-close-button {
+  color: var(--color-muted);
+  font-size: 16px;
+  padding: 2px 6px;
+}
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: var(--color-paper);
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: var(--color-paper);
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--color-paper);
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--color-paper);
+}
