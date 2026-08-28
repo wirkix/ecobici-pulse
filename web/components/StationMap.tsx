@@ -18,12 +18,40 @@ function occupancyColor(pct: number): string {
   return "var(--color-low)";
 }
 
+// How many stations to surface in each "top" list.
+const TOP_N = 10;
+
 export default function StationMap() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markers = useRef<Map<string, maplibregl.Marker>>(new Map());
+  // Mirrors `markers` but keeps the raw snapshot data (bikes/docks counts,
+  // is_renting/is_returning) that markers.current doesn't expose -- needed
+  // to compute the top-N lists below.
+  const stations = useRef<Map<string, StationSnapshot>>(new Map());
   const [stationCount, setStationCount] = useState(0);
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
+  const [topBikes, setTopBikes] = useState<StationSnapshot[]>([]);
+  const [topDocks, setTopDocks] = useState<StationSnapshot[]>([]);
+
+  function recomputeTopLists() {
+    const all = Array.from(stations.current.values());
+    // Only recommend stations actually dispensing/accepting bikes right
+    // now -- a station can carry a stale nonzero count while temporarily
+    // not renting/returning (maintenance, rebalancing truck mid-visit).
+    setTopBikes(
+      all
+        .filter((s) => s.is_renting)
+        .sort((a, b) => b.bikes_available - a.bikes_available)
+        .slice(0, TOP_N)
+    );
+    setTopDocks(
+      all
+        .filter((s) => s.is_returning)
+        .sort((a, b) => b.docks_available - a.docks_available)
+        .slice(0, TOP_N)
+    );
+  }
 
   function upsertMarker(station: StationSnapshot) {
     if (!map.current) return;
@@ -50,7 +78,17 @@ export default function StationMap() {
         .addTo(map.current);
       markers.current.set(station.station_id, marker);
     }
+    stations.current.set(station.station_id, station);
+    recomputeTopLists();
     setLastUpdate(new Date().toLocaleTimeString());
+  }
+
+  function focusStation(station: StationSnapshot) {
+    if (!map.current) return;
+    const marker = markers.current.get(station.station_id);
+    if (!marker) return;
+    map.current.flyTo({ center: [station.lon, station.lat], zoom: 15 });
+    marker.togglePopup();
   }
 
   useEffect(() => {
@@ -115,6 +153,53 @@ export default function StationMap() {
           nearly empty or nearly full
         </div>
       </div>
+      <div className="absolute bottom-6 right-4 flex max-h-[calc(100%-3rem)] w-64 flex-col gap-3 overflow-y-auto rounded-lg border border-line bg-paper/85 px-3 py-2 text-xs text-muted backdrop-blur">
+        <TopList title="Best for grabbing a bike" icon="🚲" stations={topBikes} metric="bikes_available" onSelect={focusStation} />
+        <TopList title="Best for returning a bike" icon="🅿️" stations={topDocks} metric="docks_available" onSelect={focusStation} />
+      </div>
+    </div>
+  );
+}
+
+function TopList({
+  title,
+  icon,
+  stations,
+  metric,
+  onSelect,
+}: {
+  title: string;
+  icon: string;
+  stations: StationSnapshot[];
+  metric: "bikes_available" | "docks_available";
+  onSelect: (station: StationSnapshot) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1.5 text-ink">
+        <span>{icon}</span> {title}
+      </div>
+      {stations.length === 0 ? (
+        <div className="px-1 py-0.5 text-muted">loading…</div>
+      ) : (
+        <ol>
+          {stations.map((s, i) => (
+            <li key={s.station_id}>
+              <button
+                type="button"
+                onClick={() => onSelect(s)}
+                title={s.name}
+                className="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-line/60"
+              >
+                <span className="truncate">
+                  {i + 1}. {s.name}
+                </span>
+                <span className="shrink-0 text-ink">{s[metric]}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
