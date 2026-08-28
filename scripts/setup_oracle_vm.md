@@ -45,6 +45,14 @@ nano .env   # fill in SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_DSN
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
+For `SUPABASE_DB_DSN`, use the dashboard's **Connect** panel -> **Session
+pooler** string, not the direct connection string the dashboard shows by
+default. This VM has no IPv6 egress (true of most cloud VM images), and
+Supabase's direct connection is IPv6-only unless you pay for the IPv4
+add-on -- using it here fails with `psycopg2.OperationalError: ...
+Network is unreachable` rather than an obviously-DSN-related error. See
+CLAUDE.md's "Known gotchas" for detail.
+
 Check it's running:
 
 ```bash
@@ -66,16 +74,18 @@ From your own machine (not the VM, since nothing here is publicly
 reachable by design):
 
 ```sql
--- against the Supabase project's direct connection string
+-- against the Supabase project's session-pooler connection string (see
+-- above -- your own machine may or may not have working IPv6, so use the
+-- same pooler string here rather than assuming the direct one will work)
 select station_id, name, occupancy_pct, updated_at from station_snapshot order by updated_at desc limit 5;
 ```
 
 `updated_at` should be within the last ~60-90 seconds and keep advancing
 on repeated queries.
 
-## Handing back to Claude
+## Status
 
-Once the VM is up and `docker compose ps` shows all four services
-running, let me know -- I'll pick up the remaining build-sequence steps
-(Vercel deploy, confirming the live map, then the portfolio card update)
-from there.
+This runbook has already been followed once for this project's live
+deployment -- see [`NEXT_STEPS.md`](../NEXT_STEPS.md) for current status.
+Re-run it if the VM ever needs to be recreated from scratch (e.g. after
+losing access, or moving to a fresh Always Free tenancy).

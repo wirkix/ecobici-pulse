@@ -12,6 +12,8 @@ export default function Home() {
         </div>
         <a
           href="https://github.com/wirkix/ecobici-pulse"
+          target="_blank"
+          rel="noopener noreferrer"
           className="text-sm text-muted hover:text-ink"
         >
           GitHub →
