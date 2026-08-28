@@ -34,34 +34,44 @@ body {
    stylesheet sets the popup background to a hardcoded white but never
    sets a text color -- it was inheriting body's near-white --color-ink
    (meant for light text on the dark page background), landing as
-   near-white text on a white popup. */
+   near-white text on a white popup.
+
+   !important is deliberate and necessary here, not laziness: MapLibre's
+   CSS (maplibre-gl/dist/maplibre-gl.css, imported in StationMap.tsx) is
+   bundled into a chunk that Next.js places AFTER this globals.css chunk
+   regardless of source order in this file, and its selectors here are
+   the same specificity as these (single/double class), so without
+   !important the equal-specificity tiebreak goes to MapLibre's later
+   chunk and silently wins -- confirmed via computed styles in prod, not
+   a hypothetical. MapLibre exposes no CSS variables for popup theming,
+   so there's no non-!important hook to use instead. */
 .maplibregl-popup-content {
-  background: var(--color-paper);
-  color: var(--color-ink);
+  background: var(--color-paper) !important;
+  color: var(--color-ink) !important;
   border: 1px solid var(--color-line);
-  border-radius: 8px;
+  border-radius: 8px !important;
   padding: 10px 14px;
   font-family: var(--font-display);
   line-height: 1.5;
 }
 .maplibregl-popup-close-button {
-  color: var(--color-muted);
+  color: var(--color-muted) !important;
   font-size: 16px;
   padding: 2px 6px;
 }
 .maplibregl-popup-anchor-top .maplibregl-popup-tip,
 .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
 .maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
-  border-bottom-color: var(--color-paper);
+  border-bottom-color: var(--color-paper) !important;
 }
 .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
 .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
 .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
-  border-top-color: var(--color-paper);
+  border-top-color: var(--color-paper) !important;
 }
 .maplibregl-popup-anchor-left .maplibregl-popup-tip {
-  border-right-color: var(--color-paper);
+  border-right-color: var(--color-paper) !important;
 }
 .maplibregl-popup-anchor-right .maplibregl-popup-tip {
-  border-left-color: var(--color-paper);
+  border-left-color: var(--color-paper) !important;
 }
