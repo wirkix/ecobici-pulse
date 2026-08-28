@@ -87,8 +87,21 @@ export default function StationMap() {
     if (!map.current) return;
     const marker = markers.current.get(station.station_id);
     if (!marker) return;
+    // Clicking a dot directly closes any other open popup for free -- it's
+    // MapLibre's default closeOnClick behavior, which fires because that
+    // click bubbles up as a click on the map itself. A click originating in
+    // this side panel is never a map click, so that default never triggers,
+    // and popups opened from here would otherwise pile up indefinitely.
+    // Close everything else first so this list behaves like clicking dots.
+    markers.current.forEach((m, id) => {
+      if (id !== station.station_id && m.getPopup()?.isOpen()) {
+        m.togglePopup();
+      }
+    });
     map.current.flyTo({ center: [station.lon, station.lat], zoom: 15 });
-    marker.togglePopup();
+    if (!marker.getPopup()?.isOpen()) {
+      marker.togglePopup();
+    }
   }
 
   useEffect(() => {
@@ -153,7 +166,10 @@ export default function StationMap() {
           nearly empty or nearly full
         </div>
       </div>
-      <div className="absolute bottom-6 right-4 flex max-h-[calc(100%-3rem)] w-64 flex-col gap-3 overflow-y-auto rounded-lg border border-line bg-paper/85 px-3 py-2 text-xs text-muted backdrop-blur">
+      {/* bottom-12 (not bottom-6, like the other overlay cards) -- MapLibre's
+          default attribution "i" control also sits bottom-right and is ~34px
+          tall from the viewport edge, so anything less overlaps it. */}
+      <div className="absolute bottom-12 right-4 flex max-h-[calc(100%-6rem)] w-64 flex-col gap-3 overflow-y-auto rounded-lg border border-line bg-paper/85 px-3 py-2 text-xs text-muted backdrop-blur">
         <TopList title="Best for grabbing a bike" icon="🚲" stations={topBikes} metric="bikes_available" onSelect={focusStation} />
         <TopList title="Best for returning a bike" icon="🅿️" stations={topDocks} metric="docks_available" onSelect={focusStation} />
       </div>
