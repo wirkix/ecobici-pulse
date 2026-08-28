@@ -86,6 +86,6 @@ on repeated queries.
 ## Status
 
 This runbook has already been followed once for this project's live
-deployment -- see [`NEXT_STEPS.md`](../NEXT_STEPS.md) for current status.
-Re-run it if the VM ever needs to be recreated from scratch (e.g. after
-losing access, or moving to a fresh Always Free tenancy).
+deployment -- the pipeline is up and running. Re-run it if the VM ever
+needs to be recreated from scratch (e.g. after losing access, or moving
+to a fresh Always Free tenancy).
