@@ -1,10 +1,13 @@
 # Ecobici Pulse
 
+**Live demo: https://ecobici-pulse-three.vercel.app/**
+
 A live occupancy map of Mexico City's Ecobici bike-share system: a Python
 poller streams the public GBFS feed through Kafka, a consumer joins it
 against station metadata and fans it out to TimescaleDB (history) and
 Supabase (current snapshot + Realtime push), and a Next.js app renders it
-on a live map.
+on a live map -- station pins colored by occupancy, plus top-10 lists of
+the best stations to grab or return a bike right now.
 
 ```
 Ecobici GBFS (public, no auth)
@@ -27,6 +30,7 @@ Ecobici GBFS (public, no auth)
                              - initial load: station_snapshot table
                              - live updates: Realtime broadcast subscription
                              - MapLibre GL map, pins colored by occupancy %
+                             - top-10 lists: best stations to grab/return a bike
 ```
 
 ## Why this design
@@ -86,8 +90,14 @@ Docker required.
 2. Run [`db/supabase/schema.sql`](db/supabase/schema.sql) in the SQL
    editor.
 3. From Project Settings -> API, copy the project URL, anon key, and
-   service role key. From Project Settings -> Database, copy the direct
-   (non-pooled) connection string.
+   service role key. From the dashboard's **Connect** panel, copy the
+   **Session pooler** connection string for `SUPABASE_DB_DSN` -- **not**
+   the direct connection string. The direct connection is IPv6-only
+   (unless you pay for Supabase's IPv4 add-on), and most hosts running the
+   consumer (this project's production VM included) have no IPv6 egress,
+   so the direct string fails with a misleading `Network is unreachable`
+   error rather than a DNS or auth error. See CLAUDE.md's "Known gotchas"
+   for detail.
 4. Fill those into `.env` (repo root, for the pipeline) and `web/.env.local`
    (Next.js app -- only needs the `NEXT_PUBLIC_*` ones).
 

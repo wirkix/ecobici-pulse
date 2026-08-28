@@ -106,3 +106,21 @@ tests/               pytest unit tests, run against fixture JSON (no network)
   password. Don't "fix" the direct-connection failure by enabling IPv6
   on the VM instead; the pooler is Supabase's documented recommendation
   for exactly this case and needs no VM networking changes.
+- `web/app/globals.css`'s `.maplibregl-popup-content`/`-tip`/
+  `-close-button` overrides need `!important` -- don't remove it thinking
+  it's redundant. MapLibre's own stylesheet (`maplibre-gl/dist/maplibre-gl.css`,
+  imported inside `StationMap.tsx`) defines the same selectors at the same
+  specificity, and Next.js places that chunk *after* `globals.css`'s chunk
+  in the built page regardless of import order in either file -- so
+  without `!important` the equal-specificity tiebreak silently goes to
+  MapLibre's rule every time. Confirmed via computed styles against the
+  deployed page, twice (the first attempt at this fix, without
+  `!important`, shipped and did nothing).
+- `StationMap.tsx`'s `focusStation()` (called when a top-10 list entry is
+  clicked) explicitly closes every other open popup before opening its
+  target. This looks redundant with MapLibre's default
+  `Popup({closeOnClick: true})`, but isn't: that default only fires on a
+  click that bubbles up as a click *on the map itself* -- which a direct
+  dot click does for free, but a click inside the side-panel list never
+  does. Without the explicit close, popups opened from the list pile up
+  indefinitely instead of replacing each other like dot clicks do.
