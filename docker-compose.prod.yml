@@ -8,16 +8,14 @@
 #     the whole point of this design is that the VM has zero inbound ports
 #     open to the internet.
 #   - restart: always (survive a VM reboot, not just a container crash).
-#   - Named volumes get a distinct prefix so this never collides with a
-#     local dev run if someone ever runs both against the same host.
 
 services:
   kafka:
-    ports: []
+    ports: !reset []
     restart: always
 
   timescaledb:
-    ports: []
+    ports: !reset []
     restart: always
 
   poller:
