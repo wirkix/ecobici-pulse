@@ -86,8 +86,23 @@ tests/               pytest unit tests, run against fixture JSON (no network)
   startup before the initial synchronous fetch in `StationInfoCache.start()`
   completes. Don't change this to raise; a missing join target isn't
   fatal here.
-- Supabase's REST broadcast endpoint/body shape is unverified against a
-  real project as of this writing (see the `NOTE` comment in
-  `consumer/main.py`'s `broadcast_supabase()`) -- re-check Supabase's
-  current docs once the real Supabase project exists, before assuming
-  that code path is correct.
+- Supabase's REST broadcast endpoint (`consumer/main.py`'s
+  `broadcast_supabase()`) is now verified against the real project --
+  `POST {url}/realtime/v1/api/broadcast` with a "messages" array returns
+  202 Accepted as documented.
+- **`SUPABASE_DB_DSN` must be the Supavisor session-pooler connection
+  string** (`postgresql://postgres.<project-ref>:<password>@aws-N-<region>.pooler.supabase.com:5432/postgres`),
+  **not** the direct `db.<project-ref>.supabase.co:5432` one from the
+  dashboard's default "Connect" tab. Supabase's direct connection is
+  IPv6-only (unless you pay for the IPv4 add-on), and the Oracle Cloud VM
+  -- like most cloud VM images -- has no IPv6 egress by default, so
+  `psycopg2.connect()` fails with `OperationalError: ... Network is
+  unreachable`, not a DNS or auth error. Get the pooler string from the
+  dashboard's Connect panel -> "Session pooler" (not "Transaction
+  pooler," which is port 6543 and doesn't support the session-level
+  usage this consumer needs). The `N` in `aws-N-<region>` varies per
+  project (this project's is `aws-1-us-west-2`) -- a `tenant/user ...
+  not found` error means you guessed the wrong `N`, not a bad
+  password. Don't "fix" the direct-connection failure by enabling IPv6
+  on the VM instead; the pooler is Supabase's documented recommendation
+  for exactly this case and needs no VM networking changes.

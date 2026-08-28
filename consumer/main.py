@@ -99,10 +99,9 @@ def write_supabase_snapshot(cursor, snapshot: StationSnapshot) -> None:
 def broadcast_supabase(
     http_client: httpx.Client, snapshot: StationSnapshot, supabase_url: str, service_role_key: str
 ) -> None:
-    # NOTE: verify this endpoint/body shape against Supabase's current docs
-    # once the real project exists -- their REST broadcast API has shifted
-    # shape across versions. As of this writing it's a "messages" array on
-    # POST {url}/realtime/v1/api/broadcast.
+    # Verified 2026-08-28 against the real ecobici-pulse Supabase project:
+    # POST {url}/realtime/v1/api/broadcast with a "messages" array returns
+    # 202 Accepted as expected.
     resp = http_client.post(
         f"{supabase_url}/realtime/v1/api/broadcast",
         headers={
