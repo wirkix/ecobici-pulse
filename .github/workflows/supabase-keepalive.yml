@@ -5,6 +5,13 @@ name: Supabase keep-alive
 # 3 days -- comfortably under that window -- so it never goes idle long
 # enough to trigger the pause. No effect on billing; the anon/publishable
 # key is the same one already shipped client-side in web/'s deployed app.
+#
+# Queries public.station_snapshot, not bare /rest/v1/ -- that root/OpenAPI
+# endpoint 401s with "Secret API key required" under Supabase's newer key
+# system, which reserves it for secret keys; a real table read with the
+# publishable key (same table the map's own initial page load reads, RLS
+# policy "station_snapshot is publicly readable") returns 200 and still
+# counts as API activity.
 on:
   schedule:
     - cron: '0 6 */3 * *'
@@ -16,5 +23,5 @@ jobs:
     steps:
       - name: Ping Supabase REST API
         run: |
-          curl -sf "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}/rest/v1/" \
+          curl -sf "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}/rest/v1/station_snapshot?select=station_id&limit=1" \
             -H "apikey: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}"
