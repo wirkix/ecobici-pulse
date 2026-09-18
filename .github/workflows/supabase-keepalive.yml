@@ -1,10 +1,12 @@
 name: Supabase keep-alive
 
 # Supabase's Free plan auto-pauses a project after 7 consecutive days with
-# no API activity. This pings the project's REST (PostgREST) endpoint every
-# 3 days -- comfortably under that window -- so it never goes idle long
-# enough to trigger the pause. No effect on billing; the anon/publishable
-# key is the same one already shipped client-side in web/'s deployed app.
+# no API activity. This pings the project's REST (PostgREST) endpoint daily
+# -- comfortably under that window, with margin for GitHub Actions'
+# best-effort schedule trigger occasionally slipping or dropping a run --
+# so it never goes idle long enough to trigger the pause. No effect on
+# billing; the anon/publishable key is the same one already shipped
+# client-side in web/'s deployed app.
 #
 # Queries public.station_snapshot, not bare /rest/v1/ -- that root/OpenAPI
 # endpoint 401s with "Secret API key required" under Supabase's newer key
@@ -14,7 +16,7 @@ name: Supabase keep-alive
 # counts as API activity.
 on:
   schedule:
-    - cron: '0 6 */3 * *'
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 jobs:

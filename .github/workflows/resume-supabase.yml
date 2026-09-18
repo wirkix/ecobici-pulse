@@ -1,0 +1,27 @@
+name: Resume Supabase project
+
+# ecobici_pulse is done and no longer actively worked on, so its Supabase
+# project is left to auto-pause after 7 days of inactivity (see
+# supabase.com/docs/guides/platform/free-project-pausing) instead of being
+# kept artificially alive. This workflow is the "resume" half of that
+# pause/resume cycle: trigger it manually (Actions tab, or the GitHub
+# mobile app) whenever the project needs to come back, instead of signing
+# into the Supabase dashboard to click Restore by hand.
+#
+# Requires a repo secret SUPABASE_ACCESS_TOKEN: a Supabase account-level
+# Personal Access Token (Dashboard -> Account -> Access Tokens), scoped to
+# projects:write (or a fine-grained token with project_admin_write on this
+# project). This is an account credential, not the project's anon key --
+# keep it out of anything client-side.
+on:
+  workflow_dispatch:
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore paused project
+        run: |
+          curl -sf -X POST "https://api.supabase.com/v1/projects/clbudtkiaskvqqnzrrjj/restore" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" \
+            -H "Content-Type: application/json"
