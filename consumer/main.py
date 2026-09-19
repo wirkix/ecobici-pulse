@@ -88,12 +88,39 @@ def build_snapshot(event: StationStatusEvent, info_cache: StationInfoCache) -> S
     )
 
 
-def write_timescale(cursor, snapshot: StationSnapshot) -> None:
-    cursor.execute(INSERT_HISTORY_SQL, snapshot.model_dump())
+def connect(dsn: str) -> psycopg2.extensions.connection:
+    conn = psycopg2.connect(dsn)
+    conn.autocommit = True
+    return conn
 
 
-def write_supabase_snapshot(cursor, snapshot: StationSnapshot) -> None:
-    cursor.execute(UPSERT_SNAPSHOT_SQL, snapshot.model_dump())
+class ReconnectingWriter:
+    """Holds a single psycopg2 connection and reconnects on a dead one.
+
+    A long-lived connection (this consumer runs for weeks at a time) will
+    eventually get dropped server-side -- an idle timeout, a pooler
+    recycling it, a network blip -- and psycopg2 doesn't detect that until
+    the next query on it fails with InterfaceError/OperationalError. Found
+    the hard way: the previous version opened its connections once at
+    startup and never reconnected, so a single dropped connection silently
+    broke every write for the rest of the process's life (3+ weeks, in
+    production) while the container kept reporting healthy.
+    """
+
+    def __init__(self, dsn: str):
+        self._dsn = dsn
+        self._conn = connect(dsn)
+
+    def execute(self, sql: str, params: dict) -> None:
+        try:
+            with self._conn.cursor() as cursor:
+                cursor.execute(sql, params)
+            return
+        except (psycopg2.InterfaceError, psycopg2.OperationalError):
+            log.warning("connection dropped, reconnecting")
+            self._conn = connect(self._dsn)
+            with self._conn.cursor() as cursor:
+                cursor.execute(sql, params)
 
 
 def broadcast_supabase(
@@ -134,22 +161,20 @@ def main() -> None:
     info_cache = StationInfoCache()
     info_cache.start()
 
-    timescale_conn = psycopg2.connect(timescale_dsn)
-    timescale_conn.autocommit = True
-    supabase_conn = psycopg2.connect(supabase_db_dsn)
-    supabase_conn.autocommit = True
+    timescale = ReconnectingWriter(timescale_dsn)
+    supabase = ReconnectingWriter(supabase_db_dsn)
 
     consumer = make_consumer(group_id="ecobici-pulse-consumer", topics=[TOPIC_STATION_STATUS_RAW])
 
-    with httpx.Client() as http_client, timescale_conn.cursor() as ts_cur, supabase_conn.cursor() as sb_cur:
+    with httpx.Client() as http_client:
         for raw in iter_json_messages(consumer):
             event = StationStatusEvent.model_validate(raw)
             snapshot = build_snapshot(event, info_cache)
             if snapshot is None:
                 continue
             try:
-                write_timescale(ts_cur, snapshot)
-                write_supabase_snapshot(sb_cur, snapshot)
+                timescale.execute(INSERT_HISTORY_SQL, snapshot.model_dump())
+                supabase.execute(UPSERT_SNAPSHOT_SQL, snapshot.model_dump())
                 broadcast_supabase(http_client, snapshot, supabase_url, supabase_service_role_key)
             except Exception:
                 log.exception("failed to process station_id=%s, continuing", event.station_id)
