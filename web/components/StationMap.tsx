@@ -144,6 +144,9 @@ export default function StationMap() {
 
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
+    // Served from public/ by scripts/copy-maplibre-worker.mjs -- the
+    // bundler doesn't emit maplibre v6's separate worker module.
+    maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
     map.current = new maplibregl.Map({
       container: mapContainer.current,
       style: MAP_STYLE,
