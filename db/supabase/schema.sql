@@ -34,3 +34,12 @@ CREATE POLICY "station_snapshot is publicly readable"
 -- into public write access. The consumer writes with the service role.
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
     ON station_snapshot FROM anon, authenticated;
+
+-- Live updates go over the *private* Realtime channel "stations". Anon can
+-- receive broadcasts on it; there is deliberately no INSERT policy, so
+-- nobody but the consumer (service role, bypasses RLS) can send. Pair this
+-- with Realtime Settings -> "Allow public access" OFF, so the old public
+-- channel (where anyone with the anon key could broadcast) is gone.
+CREATE POLICY "anon can receive station broadcasts"
+    ON realtime.messages FOR SELECT TO anon
+    USING (realtime.topic() = 'stations' AND extension = 'broadcast');

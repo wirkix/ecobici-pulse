@@ -172,16 +172,19 @@ export default function StationMap() {
 
     loadInitialSnapshot();
 
+    // Private channel: RLS on realtime.messages lets anon receive but not
+    // send, so only the consumer (service role) can broadcast. Payloads are
+    // still validated -- defense in depth if that policy ever changes.
     const channel = supabase
-      .channel("stations")
+      .channel("stations", { config: { private: true } })
       .on("broadcast", { event: "station_update" }, ({ payload }) => {
-        // The "stations" channel is a public broadcast channel: anyone
-        // holding the (public, shipped-to-the-browser) anon key can send on
-        // it, not just the consumer. Treat every payload as untrusted and
-        // drop anything that isn't a well-formed station snapshot.
         if (isStationSnapshot(payload)) upsertMarker(payload);
-      })
-      .subscribe();
+      });
+    // Private channels authorize with the client's JWT (the anon key here);
+    // setAuth() makes sure it's attached before joining.
+    supabase.realtime.setAuth().then(() => {
+      if (!cancelled) channel.subscribe();
+    });
 
     return () => {
       cancelled = true;
