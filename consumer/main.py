@@ -129,6 +129,11 @@ def broadcast_supabase(
     # Verified 2026-08-28 against the real ecobici-pulse Supabase project:
     # POST {url}/realtime/v1/api/broadcast with a "messages" array returns
     # 202 Accepted as expected.
+    #
+    # "private": True sends on the private channel, which is gated by RLS on
+    # realtime.messages (db/supabase/schema.sql): anon may receive, nobody
+    # but the service role may send. On the old public channel anyone with
+    # the anon key could broadcast fake station updates to every viewer.
     resp = http_client.post(
         f"{supabase_url}/realtime/v1/api/broadcast",
         headers={
@@ -141,6 +146,7 @@ def broadcast_supabase(
                     "topic": REALTIME_TOPIC,
                     "event": "station_update",
                     "payload": snapshot.model_dump(),
+                    "private": True,
                 }
             ]
         },
