@@ -27,3 +27,10 @@ CREATE POLICY "station_snapshot is publicly readable"
     FOR SELECT
     TO anon
     USING (true);
+
+-- Supabase grants anon/authenticated full table privileges by default and
+-- relies on RLS to block writes. Revoke the write privileges too, so a
+-- future policy mistake (or TRUNCATE, which RLS doesn't cover) can't turn
+-- into public write access. The consumer writes with the service role.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+    ON station_snapshot FROM anon, authenticated;

@@ -12,7 +12,7 @@ services:
     image: apache/kafka:3.8.0
     hostname: kafka
     ports:
-      - "9092:9092" # host access, e.g. for kcat/local debugging
+      - "127.0.0.1:9092:9092" # host access, e.g. for kcat/local debugging
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -33,7 +33,7 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     ports:
-      - "5433:5432" # 5433 on the host to avoid clashing with a local Postgres on 5432
+      - "127.0.0.1:5433:5432" # 5433 on the host to avoid clashing with a local Postgres on 5432
     environment:
       POSTGRES_USER: ecobici
       POSTGRES_PASSWORD: ecobici

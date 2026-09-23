@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { supabase, type StationSnapshot } from "@/lib/supabaseClient";
 
@@ -20,6 +20,46 @@ function occupancyColor(pct: number): string {
 
 // How many stations to surface in each "top" list.
 const TOP_N = 10;
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+function isStationSnapshot(p: unknown): p is StationSnapshot {
+  if (typeof p !== "object" || p === null) return false;
+  const s = p as Record<string, unknown>;
+  return (
+    typeof s.station_id === "string" &&
+    s.station_id.length <= 64 &&
+    typeof s.name === "string" &&
+    s.name.length <= 200 &&
+    isFiniteNumber(s.lat) &&
+    Math.abs(s.lat) <= 90 &&
+    isFiniteNumber(s.lon) &&
+    Math.abs(s.lon) <= 180 &&
+    isFiniteNumber(s.capacity) &&
+    isFiniteNumber(s.bikes_available) &&
+    isFiniteNumber(s.docks_available) &&
+    isFiniteNumber(s.occupancy_pct) &&
+    typeof s.is_renting === "boolean" &&
+    typeof s.is_returning === "boolean"
+  );
+}
+
+// Built with textContent, never an HTML string: station names come from the
+// Ecobici feed and the public broadcast channel, so interpolating them into
+// setHTML() would be a stored-XSS sink on every visitor's browser.
+function buildPopupContent(station: StationSnapshot): HTMLElement {
+  const root = document.createElement("div");
+  const name = document.createElement("strong");
+  name.textContent = station.name;
+  const counts = document.createElement("div");
+  counts.textContent = `${station.bikes_available} bikes · ${station.docks_available} docks free`;
+  const occupancy = document.createElement("div");
+  occupancy.textContent = `${station.occupancy_pct.toFixed(0)}% occupied`;
+  root.append(name, counts, occupancy);
+  return root;
+}
 
 export default function StationMap() {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -64,17 +104,15 @@ export default function StationMap() {
     el.style.background = occupancyColor(station.occupancy_pct);
     el.style.cursor = "pointer";
 
-    const popupHtml = `<strong>${station.name}</strong><br/>
-      ${station.bikes_available} bikes · ${station.docks_available} docks free<br/>
-      ${station.occupancy_pct.toFixed(0)}% occupied`;
+    const popupContent = buildPopupContent(station);
 
     if (existing) {
       existing.setLngLat([station.lon, station.lat]);
-      existing.getPopup()?.setHTML(popupHtml);
+      existing.getPopup()?.setDOMContent(popupContent);
     } else {
       const marker = new maplibregl.Marker({ element: el })
         .setLngLat([station.lon, station.lat])
-        .setPopup(new maplibregl.Popup({ offset: 12 }).setHTML(popupHtml))
+        .setPopup(new maplibregl.Popup({ offset: 12 }).setDOMContent(popupContent))
         .addTo(map.current);
       markers.current.set(station.station_id, marker);
     }
@@ -106,6 +144,9 @@ export default function StationMap() {
 
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
+    // Served from public/ by scripts/copy-maplibre-worker.mjs -- the
+    // bundler doesn't emit maplibre v6's separate worker module.
+    maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
     map.current = new maplibregl.Map({
       container: mapContainer.current,
       style: MAP_STYLE,
@@ -134,7 +175,11 @@ export default function StationMap() {
     const channel = supabase
       .channel("stations")
       .on("broadcast", { event: "station_update" }, ({ payload }) => {
-        upsertMarker(payload as StationSnapshot);
+        // The "stations" channel is a public broadcast channel: anyone
+        // holding the (public, shipped-to-the-browser) anon key can send on
+        // it, not just the consumer. Treat every payload as untrusted and
+        // drop anything that isn't a well-formed station snapshot.
+        if (isStationSnapshot(payload)) upsertMarker(payload);
       })
       .subscribe();
 
