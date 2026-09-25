@@ -70,3 +70,24 @@ def test_execute_raises_when_the_reconnect_is_also_dead(monkeypatch):
     writer = ReconnectingWriter("dsn")
     with pytest.raises(psycopg2.InterfaceError):
         writer.execute("INSERT ...", {"a": 1})
+
+
+def test_execute_values_reconnects_once_after_a_dead_connection(monkeypatch):
+    dead = FakeConnection(fail=True)
+    healthy = FakeConnection(fail=False)
+    connections = iter([dead, healthy])
+    monkeypatch.setattr("consumer.main.connect", lambda dsn: next(connections))
+
+    calls = []
+
+    def fake_execute_values(cursor, sql, rows, template, page_size):
+        cursor.execute(sql, rows)
+        calls.append(page_size)
+
+    monkeypatch.setattr("consumer.main.psycopg2.extras.execute_values", fake_execute_values)
+
+    writer = ReconnectingWriter("dsn")
+    writer.execute_values("INSERT ... VALUES %s", [{"a": 1}, {"a": 2}], "(%(a)s)")
+
+    assert healthy.cursor_obj.executed == [("INSERT ... VALUES %s", [{"a": 1}, {"a": 2}])]
+    assert calls == [2]

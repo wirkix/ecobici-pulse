@@ -10,6 +10,9 @@ three ways:
      browser tabs receive live, no polling) -- only stations whose counts
      changed, batched per poll; see BroadcastBatcher.
 
+(1) and (2) are written a whole poll's worth of stations at a time (see
+write_batch) rather than one round trip per station.
+
 (2) and (3) both hit Supabase for two different reasons: (2) is durable
 state a fresh page load can query; (3) is an ephemeral push so open tabs
 don't have to poll for it. Same payload, different purpose.
@@ -20,9 +23,11 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 
 import httpx
 import psycopg2
+import psycopg2.extras
 import truststore
 
 # See poller/main.py for why -- same OS-trust-store TLS verification,
@@ -42,21 +47,29 @@ REALTIME_TOPIC = os.environ.get("REALTIME_TOPIC", "stations")
 # Stations per Realtime message. ~250 bytes of JSON each, so 100 keeps a
 # message around 25 KB -- well under Realtime's per-message payload limit.
 BROADCAST_BATCH_SIZE = 100
+# Broadcast at least this often even if the Kafka stream never goes idle
+# (e.g. while working through a backlog) -- otherwise open tabs would never
+# get an update until the consumer caught up.
+BROADCAST_MAX_INTERVAL_S = 30.0
+# Rows per database write. A poll is ~680 stations, so one poll is normally
+# a single write; the cap only matters while working through a backlog.
+WRITE_BATCH_SIZE = 1000
 
 INSERT_HISTORY_SQL = """
     INSERT INTO station_status_history
         (time, station_id, bikes_available, docks_available, occupancy_pct, is_renting, is_returning)
-    VALUES (to_timestamp(%(observed_at)s), %(station_id)s, %(bikes_available)s, %(docks_available)s,
-            %(occupancy_pct)s, %(is_renting)s, %(is_returning)s)
+    VALUES %s
+"""
+INSERT_HISTORY_TEMPLATE = """
+    (to_timestamp(%(observed_at)s), %(station_id)s, %(bikes_available)s, %(docks_available)s,
+     %(occupancy_pct)s, %(is_renting)s, %(is_returning)s)
 """
 
 UPSERT_SNAPSHOT_SQL = """
     INSERT INTO station_snapshot
         (station_id, name, lat, lon, capacity, bikes_available, docks_available,
          occupancy_pct, is_renting, is_returning, updated_at)
-    VALUES (%(station_id)s, %(name)s, %(lat)s, %(lon)s, %(capacity)s, %(bikes_available)s,
-            %(docks_available)s, %(occupancy_pct)s, %(is_renting)s, %(is_returning)s,
-            to_timestamp(%(observed_at)s))
+    VALUES %s
     ON CONFLICT (station_id) DO UPDATE SET
         bikes_available = EXCLUDED.bikes_available,
         docks_available = EXCLUDED.docks_available,
@@ -65,6 +78,11 @@ UPSERT_SNAPSHOT_SQL = """
         is_returning = EXCLUDED.is_returning,
         updated_at = EXCLUDED.updated_at
     WHERE station_snapshot.updated_at < EXCLUDED.updated_at
+"""
+UPSERT_SNAPSHOT_TEMPLATE = """
+    (%(station_id)s, %(name)s, %(lat)s, %(lon)s, %(capacity)s, %(bikes_available)s,
+     %(docks_available)s, %(occupancy_pct)s, %(is_renting)s, %(is_returning)s,
+     to_timestamp(%(observed_at)s))
 """
 
 
@@ -116,15 +134,51 @@ class ReconnectingWriter:
         self._conn = connect(dsn)
 
     def execute(self, sql: str, params: dict) -> None:
+        self._run(lambda cursor: cursor.execute(sql, params))
+
+    def execute_values(self, sql: str, rows: list[dict], template: str) -> None:
+        """Multi-row INSERT: `sql` has a single `VALUES %s` placeholder,
+        expanded to one tuple per row using `template`."""
+        self._run(
+            lambda cursor: psycopg2.extras.execute_values(
+                cursor, sql, rows, template=template, page_size=len(rows)
+            )
+        )
+
+    def _run(self, fn) -> None:
         try:
             with self._conn.cursor() as cursor:
-                cursor.execute(sql, params)
+                fn(cursor)
             return
         except (psycopg2.InterfaceError, psycopg2.OperationalError):
             log.warning("connection dropped, reconnecting")
             self._conn = connect(self._dsn)
             with self._conn.cursor() as cursor:
-                cursor.execute(sql, params)
+                fn(cursor)
+
+
+def write_batch(
+    timescale: ReconnectingWriter, supabase: ReconnectingWriter, snapshots: list[StationSnapshot]
+) -> None:
+    """Writes a batch of snapshots in one statement per database.
+
+    The previous version did two round trips per station (~1,350 per poll),
+    at ~65 ms each to the Supabase pooler -- slower than the poller
+    produces, so the consumer silently fell days behind on Kafka.
+
+    The snapshot upsert is deduplicated to the latest observation per
+    station: Postgres rejects an INSERT ... ON CONFLICT that touches the
+    same row twice in one statement, which a batch spanning two polls
+    (backlog) would otherwise do.
+    """
+    rows = [s.model_dump() for s in snapshots]
+    timescale.execute_values(INSERT_HISTORY_SQL, rows, INSERT_HISTORY_TEMPLATE)
+    latest: dict[str, dict] = {}
+    for row in rows:
+        current = latest.get(row["station_id"])
+        if current is None or row["observed_at"] >= current["observed_at"]:
+            latest[row["station_id"]] = row
+    supabase.execute_values(UPSERT_SNAPSHOT_SQL, list(latest.values()), UPSERT_SNAPSHOT_TEMPLATE)
 
 
 def broadcast_supabase(
@@ -186,11 +240,15 @@ class BroadcastBatcher:
     blowing through the Supabase org's Free-plan Realtime quota (2.2M/month)
     -- which is shared with other projects in the same org. Unchanged
     stations are skipped entirely; changed ones are flushed together once
-    the poll's burst of Kafka messages goes quiet.
+    the poll's burst of Kafka messages goes quiet, or every
+    `max_interval_s` at the latest.
     """
 
-    def __init__(self, send):
+    def __init__(self, send, max_interval_s: float = BROADCAST_MAX_INTERVAL_S, clock=time.monotonic):
         self._send = send
+        self._max_interval_s = max_interval_s
+        self._clock = clock
+        self._last_flush = clock()
         self._last_sent: dict[str, tuple] = {}
         self._pending: dict[str, StationSnapshot] = {}
 
@@ -200,7 +258,14 @@ class BroadcastBatcher:
             return
         self._pending[snapshot.station_id] = snapshot
 
+    def maybe_flush(self) -> None:
+        """Flushes if it's been `max_interval_s` since the last flush --
+        the fallback for a stream that never goes idle."""
+        if self._clock() - self._last_flush >= self._max_interval_s:
+            self.flush()
+
     def flush(self) -> None:
+        self._last_flush = self._clock()
         if not self._pending:
             return
         snapshots = list(self._pending.values())
@@ -240,24 +305,29 @@ def main() -> None:
                 http_client, snapshots, supabase_url, supabase_service_role_key
             )
         )
+        pending: list[StationSnapshot] = []
         # yield_idle: the poller produces a whole feed's worth of stations
         # in one burst, so the first idle poll after it means the batch is
-        # complete and it's time to broadcast.
+        # complete and it's time to write and broadcast.
         for raw in iter_json_messages(consumer, yield_idle=True):
-            if raw is None:
+            idle = raw is None
+            if not idle:
+                snapshot = build_snapshot(StationStatusEvent.model_validate(raw), info_cache)
+                if snapshot is not None:
+                    pending.append(snapshot)
+            if pending and (idle or len(pending) >= WRITE_BATCH_SIZE):
+                try:
+                    write_batch(timescale, supabase, pending)
+                except Exception:
+                    log.exception("failed to write %d snapshots, continuing", len(pending))
+                else:
+                    for snapshot in pending:
+                        batcher.add(snapshot)
+                pending = []
+            if idle:
                 batcher.flush()
-                continue
-            event = StationStatusEvent.model_validate(raw)
-            snapshot = build_snapshot(event, info_cache)
-            if snapshot is None:
-                continue
-            try:
-                timescale.execute(INSERT_HISTORY_SQL, snapshot.model_dump())
-                supabase.execute(UPSERT_SNAPSHOT_SQL, snapshot.model_dump())
-            except Exception:
-                log.exception("failed to process station_id=%s, continuing", event.station_id)
-                continue
-            batcher.add(snapshot)
+            else:
+                batcher.maybe_flush()
 
 
 if __name__ == "__main__":
