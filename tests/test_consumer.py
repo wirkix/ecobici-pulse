@@ -88,3 +88,111 @@ def test_build_snapshot_returns_none_when_station_info_missing():
     event = _event("999", bikes_available=5)
 
     assert build_snapshot(event, cache) is None
+
+
+def _snapshot(station_id: str, bikes_available: int, **overrides):
+    from common.models import StationSnapshot
+
+    defaults = dict(
+        station_id=station_id,
+        name=f"Station {station_id}",
+        lat=19.4,
+        lon=-99.1,
+        capacity=20,
+        bikes_available=bikes_available,
+        docks_available=20 - bikes_available,
+        occupancy_pct=compute_occupancy_pct(bikes_available, 20),
+        is_renting=True,
+        is_returning=True,
+        observed_at=1787539864,
+    )
+    defaults.update(overrides)
+    return StationSnapshot(**defaults)
+
+
+def test_batcher_sends_changed_stations_once_per_flush():
+    from consumer.main import BroadcastBatcher
+
+    sent = []
+    batcher = BroadcastBatcher(sent.append)
+    batcher.add(_snapshot("1", 5))
+    batcher.add(_snapshot("2", 7))
+    batcher.flush()
+
+    assert len(sent) == 1
+    assert [s.station_id for s in sent[0]] == ["1", "2"]
+
+
+def test_batcher_skips_unchanged_stations_even_if_observed_at_moves():
+    from consumer.main import BroadcastBatcher
+
+    sent = []
+    batcher = BroadcastBatcher(sent.append)
+    batcher.add(_snapshot("1", 5))
+    batcher.add(_snapshot("2", 7))
+    batcher.flush()
+
+    batcher.add(_snapshot("1", 5, observed_at=1787539999))
+    batcher.add(_snapshot("2", 6, docks_available=14))
+    batcher.flush()
+
+    assert [s.station_id for s in sent[1]] == ["2"]
+
+
+def test_batcher_flush_with_nothing_changed_sends_nothing():
+    from consumer.main import BroadcastBatcher
+
+    sent = []
+    batcher = BroadcastBatcher(sent.append)
+    batcher.add(_snapshot("1", 5))
+    batcher.flush()
+    batcher.add(_snapshot("1", 5))
+    batcher.flush()
+    batcher.flush()
+
+    assert len(sent) == 1
+
+
+def test_batcher_retries_stations_after_a_failed_send():
+    from consumer.main import BroadcastBatcher
+
+    calls = []
+
+    def flaky_send(snapshots):
+        calls.append(snapshots)
+        if len(calls) == 1:
+            raise RuntimeError("503")
+
+    batcher = BroadcastBatcher(flaky_send)
+    batcher.add(_snapshot("1", 5))
+    batcher.flush()
+    batcher.add(_snapshot("1", 5))
+    batcher.flush()
+
+    assert len(calls) == 2
+    assert [s.station_id for s in calls[1]] == ["1"]
+
+
+def test_broadcast_supabase_packs_stations_into_chunks():
+    from consumer.main import BROADCAST_BATCH_SIZE, broadcast_supabase
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+    class FakeClient:
+        def __init__(self):
+            self.bodies = []
+
+        def post(self, url, headers, json, timeout):
+            self.bodies.append(json)
+            return FakeResponse()
+
+    client = FakeClient()
+    snapshots = [_snapshot(str(i), 5) for i in range(BROADCAST_BATCH_SIZE * 2 + 1)]
+    broadcast_supabase(client, snapshots, "https://x.supabase.co", "key")
+
+    assert len(client.bodies) == 1
+    messages = client.bodies[0]["messages"]
+    assert [len(m["payload"]["stations"]) for m in messages] == [BROADCAST_BATCH_SIZE, BROADCAST_BATCH_SIZE, 1]
+    assert all(m["event"] == "station_batch" and m["private"] for m in messages)
