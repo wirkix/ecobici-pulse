@@ -28,10 +28,20 @@ CREATE POLICY "station_snapshot is publicly readable"
     TO anon
     USING (true);
 
--- Supabase grants anon/authenticated full table privileges by default and
--- relies on RLS to block writes. Revoke the write privileges too, so a
--- future policy mistake (or TRUNCATE, which RLS doesn't cover) can't turn
--- into public write access. The consumer writes with the service role.
+-- Explicit Data API grants. From 2026-10-30 Supabase no longer grants new
+-- public tables to these roles automatically, so without these lines a
+-- fresh project would leave the table unreadable by the map (permission
+-- denied). Matches what the live project has: read-only for the public
+-- roles, everything for the service role.
+GRANT SELECT ON station_snapshot TO anon, authenticated;
+GRANT ALL ON station_snapshot TO service_role;
+
+-- Projects created before that change (this one included) gave
+-- anon/authenticated full table privileges by default, relying on RLS to
+-- block writes. Revoke the write privileges too, so a future policy
+-- mistake (or TRUNCATE, which RLS doesn't cover) can't turn into public
+-- write access. The consumer writes with the service role. Harmless on a
+-- project where they were never granted.
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
     ON station_snapshot FROM anon, authenticated;
 

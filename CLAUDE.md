@@ -90,6 +90,20 @@ tests/               pytest unit tests, run against fixture JSON (no network)
   `broadcast_supabase()`) is now verified against the real project --
   `POST {url}/realtime/v1/api/broadcast` with a "messages" array returns
   202 Accepted as documented.
+- **Any new table in the Supabase `public` schema needs explicit `GRANT`s
+  in the same SQL that creates it.** From 2026-10-30, Supabase no longer
+  grants new `public` tables to `anon`/`authenticated`/`service_role`
+  automatically; without them the table works from `psql`/the consumer's
+  direct DSN but the web app's supabase-js reads fail with `permission
+  denied`. Follow `db/supabase/schema.sql`'s pattern: `GRANT SELECT` to
+  `anon, authenticated` for anything the map reads, `GRANT ALL` to
+  `service_role`, and keep the public roles read-only. Tables created
+  before that date (`station_snapshot`) are unaffected.
+- **Realtime messages count against the Supabase *organization's* quota**
+  (Free plan: 2.2M/month), shared with every other project in the org.
+  The consumer used to send one message per station per poll (~7M/month);
+  it now sends only changed stations, 100 per message (PRs #17, #18).
+  Keep any new broadcast path batched and change-driven.
 - **`SUPABASE_DB_DSN` must be the Supavisor session-pooler connection
   string** (`postgresql://postgres.<project-ref>:<password>@aws-N-<region>.pooler.supabase.com:5432/postgres`),
   **not** the direct `db.<project-ref>.supabase.co:5432` one from the
