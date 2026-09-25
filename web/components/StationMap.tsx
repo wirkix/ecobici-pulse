@@ -177,6 +177,17 @@ export default function StationMap() {
     // still validated -- defense in depth if that policy ever changes.
     const channel = supabase
       .channel("stations", { config: { private: true } })
+      // The consumer sends changed stations in batches (one Realtime message
+      // per up to 100 stations) to stay within the Supabase org's quota.
+      .on("broadcast", { event: "station_batch" }, ({ payload }) => {
+        const stations = (payload as { stations?: unknown } | null)?.stations;
+        if (!Array.isArray(stations) || stations.length > 2000) return;
+        stations.forEach((s) => {
+          if (isStationSnapshot(s)) upsertMarker(s);
+        });
+      })
+      // Legacy single-station event, from a consumer deployed before
+      // batching -- lets the web app and consumer deploy in either order.
       .on("broadcast", { event: "station_update" }, ({ payload }) => {
         if (isStationSnapshot(payload)) upsertMarker(payload);
       });

@@ -46,15 +46,23 @@ def make_consumer(group_id: str, topics: list[str]) -> Consumer:
     return consumer
 
 
-def iter_json_messages(consumer: Consumer, poll_timeout: float = 1.0) -> Iterator[dict[str, Any]]:
+def iter_json_messages(
+    consumer: Consumer, poll_timeout: float = 1.0, yield_idle: bool = False
+) -> Iterator[dict[str, Any] | None]:
     """Blocks polling `consumer` forever, yielding decoded JSON message
     values. Raises on any non-EOF Kafka error; EOF (no more messages at the
     partition's current end, only relevant when reading a bounded range) is
     swallowed since this is a never-ending stream in practice.
+
+    With `yield_idle=True`, also yields None whenever a poll times out with
+    no message -- lets a caller that buffers messages flush once the stream
+    goes quiet instead of waiting for the next message to arrive.
     """
     while True:
         msg = consumer.poll(poll_timeout)
         if msg is None:
+            if yield_idle:
+                yield None
             continue
         if msg.error():
             if msg.error().code() == KafkaError._PARTITION_EOF:
