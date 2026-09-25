@@ -196,3 +196,68 @@ def test_broadcast_supabase_packs_stations_into_chunks():
     messages = client.bodies[0]["messages"]
     assert [len(m["payload"]["stations"]) for m in messages] == [BROADCAST_BATCH_SIZE, BROADCAST_BATCH_SIZE, 1]
     assert all(m["event"] == "station_batch" and m["private"] for m in messages)
+
+
+def test_batcher_maybe_flush_waits_for_the_interval():
+    from consumer.main import BroadcastBatcher
+
+    now = [0.0]
+    sent = []
+    batcher = BroadcastBatcher(sent.append, max_interval_s=30.0, clock=lambda: now[0])
+    batcher.add(_snapshot("1", 5))
+
+    now[0] = 29.0
+    batcher.maybe_flush()
+    assert sent == []
+
+    now[0] = 30.0
+    batcher.maybe_flush()
+    assert [s.station_id for s in sent[0]] == ["1"]
+
+
+def test_batcher_idle_flush_resets_the_interval():
+    from consumer.main import BroadcastBatcher
+
+    now = [0.0]
+    sent = []
+    batcher = BroadcastBatcher(sent.append, max_interval_s=30.0, clock=lambda: now[0])
+
+    now[0] = 25.0
+    batcher.flush()
+    batcher.add(_snapshot("1", 5))
+    now[0] = 40.0
+    batcher.maybe_flush()
+    assert sent == []
+
+
+class _RecordingWriter:
+    def __init__(self):
+        self.calls = []
+
+    def execute_values(self, sql, rows, template):
+        self.calls.append((sql, rows, template))
+
+
+def test_write_batch_keeps_every_row_in_history_but_latest_per_station_in_snapshot():
+    from consumer.main import INSERT_HISTORY_SQL, UPSERT_SNAPSHOT_SQL, write_batch
+
+    timescale, supabase = _RecordingWriter(), _RecordingWriter()
+    write_batch(
+        timescale,
+        supabase,
+        [
+            _snapshot("1", 5, observed_at=100),
+            _snapshot("2", 7, observed_at=100),
+            _snapshot("1", 6, observed_at=160),
+        ],
+    )
+
+    (history_sql, history_rows, _), = timescale.calls
+    assert history_sql == INSERT_HISTORY_SQL
+    assert len(history_rows) == 3
+
+    (snapshot_sql, snapshot_rows, _), = supabase.calls
+    assert snapshot_sql == UPSERT_SNAPSHOT_SQL
+    by_id = {r["station_id"]: r for r in snapshot_rows}
+    assert len(snapshot_rows) == 2
+    assert by_id["1"]["bikes_available"] == 6
